@@ -1,4 +1,4 @@
-# 🤖 Knight Bot
+# 🤖 vizzo Bot
 
 This is a WhatsApp bot built using the Baileys library for group management, including features like tagging all members, muting/unmuting, and many more. It's designed to help admins efficiently manage WhatsApp groups.
 
@@ -242,3 +242,154 @@ Copyright (c) 2024 Professor. All rights reserved.
 This project contains code from various open source projects:
 - Baileys (MIT License)
 - Other libraries as listed in package.json
+require("dotenv").config();
+
+const { default: makeWASocket, useMultiFileAuthState } = require("@whiskeysockets/baileys");
+const qrcode = require("qrcode-terminal");
+const axios = require("axios");
+const ytdl = require("ytdl-core");
+
+const { OpenAI } = require("openai");
+const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+
+async function startBot() {
+    const { state, saveCreds } = await useMultiFileAuthState("auth");
+
+    const sock = makeWASocket({
+        auth: state,
+        printQRInTerminal: false
+    });
+
+    sock.ev.on("connection.update", ({ qr, connection }) => {
+        if (qr) {
+            qrcode.generate(qr, { small: true });
+            console.log("📲 Scan QR with WhatsApp");
+        }
+
+        if (connection === "open") {
+            console.log("✅ Bot Connected!");
+        }
+    });
+
+    sock.ev.on("creds.update", saveCreds);
+
+    sock.ev.on("messages.upsert", async ({ messages }) => {
+        const msg = messages[0];
+        if (!msg.message) return;
+
+        const text =
+            msg.message.conversation ||
+            msg.message.extendedTextMessage?.text;
+
+        const from = msg.key.remoteJid;
+        const isGroup = from.endsWith("@g.us");
+
+        // ========================
+        // 💼 BUSINESS AUTO REPLY
+        // ========================
+        if (text?.toLowerCase().includes("price")) {
+            await sock.sendMessage(from, {
+                text: "💰 Price is 30,000 Tsh. Pay via 0659454872 (Godlisten George)"
+            });
+        }
+
+        // ========================
+        // 🤖 AI CHAT (ChatGPT)
+        // ========================
+        if (text?.startsWith(".ai")) {
+            const prompt = text.replace(".ai", "").trim();
+
+            if (!prompt) {
+                return sock.sendMessage(from, { text: "❗ Ask something after .ai" });
+            }
+
+            try {
+                const response = await openai.chat.completions.create({
+                    model: "gpt-4o-mini",
+                    messages: [{ role: "user", content: prompt }],
+                });
+
+                await sock.sendMessage(from, {
+                    text: response.choices[0].message.content
+                });
+
+            } catch (err) {
+                await sock.sendMessage(from, { text: "❌ AI error" });
+            }
+        }
+
+        // ========================
+        // 🎵 YOUTUBE AUDIO
+        // ========================
+        if (text?.startsWith(".yt")) {
+            const url = text.split(" ")[1];
+
+            if (!url) {
+                return sock.sendMessage(from, { text: "❗ Send link like: .yt <url>" });
+            }
+
+            try {
+                const stream = ytdl(url, { filter: "audioonly" });
+
+                await sock.sendMessage(from, {
+                    audio: stream,
+                    mimetype: "audio/mp4"
+                });
+
+            } catch {
+                await sock.sendMessage(from, { text: "❌ Failed to download audio" });
+            }
+        }
+
+        // ========================
+        // 📥 TIKTOK DOWNLOADER
+        // ========================
+        if (text?.startsWith(".tt")) {
+            const url = text.split(" ")[1];
+
+            if (!url) {
+                return sock.sendMessage(from, { text: "❗ Use: .tt <link>" });
+            }
+
+            try {
+                const res = await axios.get(`https://api.tiklydown.me/api/download?url=${url}`);
+
+                await sock.sendMessage(from, {
+                    video: { url: res.data.video.noWatermark },
+                    caption: "📥 Downloaded TikTok"
+                });
+
+            } catch {
+                await sock.sendMessage(from, { text: "❌ Failed to download TikTok" });
+            }
+        }
+
+        // ========================
+        // 👥 GROUP AUTO REPLY
+        // ========================
+        if (isGroup && text?.toLowerCase() === "hello bot") {
+            await sock.sendMessage(from, {
+                text: "👋 Hello group! I'm active 🔥"
+            });
+        }
+
+        // ========================
+        // 📋 MENU
+        // ========================
+        if (text === ".menu") {
+            await sock.sendMessage(from, {
+                text: `🔥 *ULTIMATE BOT MENU*
+
+🤖 .ai <text> → AI chat
+🎵 .yt <link> → YouTube audio
+📥 .tt <link> → TikTok download
+👥 hello bot → group reply
+💼 price → business info
+
+Made for you 😎`
+            });
+        }
+    });
+}
+
+startBot();
